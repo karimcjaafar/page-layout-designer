@@ -61,7 +61,8 @@
   .pld-gapfill { position: absolute; z-index: 4; background: rgba(255,95,210,.16); cursor: pointer; }
   .pld-gapfill:hover { background: rgba(255,95,210,.45); }
   .pld-pill-in { position: absolute; transform: translate(-50%, -50%); z-index: 6; width: 70px; height: 28px; border-radius: 999px;
-    border: 2px solid #ff5fd2; background: #0b0f15; color: #fff; text-align: center; font: 800 14px ${FONT}; outline: none; }
+    border: 2px solid #ff5fd2; background: #0b0f15; color: #fff; text-align: center; font: 800 14px/24px ${FONT}; outline: none;
+    white-space: nowrap; overflow: hidden; cursor: text; }
   .pld-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6f7a8a;
     font-size: 14px; pointer-events: none; text-align: center; padding: 10px; }
   .pld-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -75,13 +76,14 @@
   .pld-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .pld-lab { width: 80px; flex: none; color: #98a0ad; }
   .pld-unit { color: #6f7a8a; font-size: 12px; }
-  .pld-num, .pld-text { height: 32px; margin: 0; background: #0b0f15; border: 1px solid #2b3648; border-radius: 8px; color: #fff;
-    padding: 0 8px; font: 700 13px ${FONT}; }
+  .pld-num, .pld-text { display: inline-block; height: 32px; margin: 0; background: #0b0f15; border: 1px solid #2b3648;
+    border-radius: 8px; color: #fff; padding: 0 8px; font: 700 13px/30px ${FONT}; white-space: nowrap; overflow: hidden;
+    cursor: text; -webkit-user-select: text; user-select: text; }
   .pld-num { width: 68px; flex: none; }
   .pld-text { flex: 1 1 auto; min-width: 0; font-weight: 600; }
   .pld-num:focus, .pld-text:focus { outline: none; border-color: #d9f23f; }
   .pld-num.auto { color: #6f7a8a; }
-  .pld-num::placeholder, .pld-text::placeholder { color: #4d5869; }
+  .pld-num:empty::before, .pld-text:empty::before, .pld-pill-in:empty::before { content: attr(data-ph); color: #4d5869; }
   .pld-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; background: #0b0f15; border: 1px solid #2b3648;
     border-radius: 999px; }
   .pld-seg button { height: 28px; margin: 0; padding: 0 11px; border: 0; border-radius: 999px; background: transparent;
@@ -134,6 +136,36 @@
   const fmt = n => { const r = Math.round(n * 10) / 10; return String(Object.is(r, -0) ? 0 : r); };
   const readNum = s => { const v = parseFloat(String(s).replace(',', '.')); return isFinite(v) ? v : null; };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // A typing box that is not a form field. Password managers pop up "save this contact" over
+  // form fields, and NordPass (Karim's) has no switch a page can use to stop it; they leave
+  // these alone. It behaves like a field: .value, 'input' while typing, 'change' when left.
+  function typeBox(cls, o) {
+    o = o || {};
+    const e = el('span', { class: cls, contenteditable: 'plaintext-only', role: 'textbox', spellcheck: 'false',
+      autocapitalize: 'off', autocorrect: 'off', inputmode: o.decimal ? 'decimal' : null, enterkeyhint: 'done' });
+    if (e.contentEditable !== 'plaintext-only') e.contentEditable = 'true';
+    Object.defineProperty(e, 'value', { get() { return e.textContent; }, set(v) { e.textContent = v; } });
+    Object.defineProperty(e, 'placeholder', { get() { return e.dataset.ph || ''; }, set(v) { e.dataset.ph = v; } });
+    e.select = () => {
+      const r = document.createRange(); r.selectNodeContents(e);
+      const sl = window.getSelection(); sl.removeAllRanges(); sl.addRange(r);
+    };
+    let start = null;
+    e.addEventListener('focus', () => {
+      start = e.textContent;
+      if (o.decimal) setTimeout(() => { if (document.activeElement === e) e.select(); }, 0);
+    });
+    e.addEventListener('blur', () => {
+      const was = start; start = null;
+      if (was !== null && e.textContent !== was) e.dispatchEvent(new Event('change'));
+    });
+    e.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); e.blur(); } });
+    e.addEventListener('paste', ev => {
+      ev.preventDefault();
+      document.execCommand('insertText', false, (ev.clipboardData || window.clipboardData).getData('text').replace(/\s+/g, ' '));
+    });
+    return e;
+  }
   const ICON = {
     back: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M20 12H5M11 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     fwd: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 12h15M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -343,7 +375,7 @@
       sel = g.gid;
       if (grp.gap === 'spread') { renderAll(); return; }
       renderSide();
-      const inp = el('input', { class: 'pld-pill-in', type: 'text', inputmode: 'decimal', enterkeyhint: 'done', value: fmt(g.v) });
+      const inp = typeBox('pld-pill-in', { decimal: true }); inp.value = fmt(g.v);
       inp.style.left = (g.x + g.w / 2) * scale + 'px'; inp.style.top = (g.y + g.h / 2) * scale + 'px';
       pill.replaceWith(inp);
       inp.focus(); inp.select();
@@ -452,7 +484,7 @@
     // ---------- the panel on the left ----------
     function numInput(get, set, o) {
       o = o || {};
-      const inp = el('input', { class: 'pld-num', type: 'text', inputmode: 'decimal', autocomplete: 'off', enterkeyhint: 'done' });
+      const inp = typeBox('pld-num', { decimal: true });
       const upd = () => {
         if (document.activeElement === inp) return;
         const r = get();
@@ -470,17 +502,15 @@
       });
       inp.addEventListener('change', () => {
         if (o.onEnter) { const v = readNum(inp.value); if (v != null) o.onEnter(v); else upd(); return; }
-        endEdit(); inp.blur(); upd();
+        endEdit(); upd();
       });
-      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
       return inp;
     }
     function textInput(value, ph, set) {
-      const inp = el('input', { class: 'pld-text', type: 'text', autocomplete: 'off', enterkeyhint: 'done', placeholder: ph });
-      inp.value = value || '';
+      const inp = typeBox('pld-text');
+      inp.value = value || ''; inp.placeholder = ph;
       inp.addEventListener('input', () => live(() => set(inp.value.trim())));
       inp.addEventListener('change', () => endEdit());
-      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
       return inp;
     }
     function seg(options, get, set) {
@@ -725,7 +755,7 @@
     }
 
     document.addEventListener('keydown', e => {
-      const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+      const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable;
       if (typing) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) fwd(); else back(); }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && sel !== 'page') { e.preventDefault(); removeBox(sel); }
